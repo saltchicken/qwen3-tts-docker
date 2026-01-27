@@ -112,11 +112,12 @@ def stream_audio(text, speaker="john_e"):
 if __name__ == "__main__":
     # Test text
     long_text = (
-        "This is a demonstration of streaming audio. "
-        "The server splits this text into sentences. "
-        "As soon as the first sentence is generated, it is sent to this client. "
-        "This means you hear audio immediately, while the GPU is still processing the end of the paragraph. "
-        "It makes the interaction feel much faster."
+        "Here is a more comprehensive test to verify the streaming capabilities of your server. "
+        "We are sending a significantly larger block of text to ensure that the sentence splitting logic works seamlessly across multiple boundaries. "
+        "Does it handle questions correctly? It certainly should! "
+        "Furthermore, this paragraph includes pauses, longer complex sentences, and standard declarative statements to fully exercise the model's intonation. "
+        "By the time you hear this sentence, the GPU should have already finished processing the beginning and moved on to the end, proving that the latency is minimal. "
+        "Enjoy the continuous stream of generated speech."
     )
     
     stream_audio(long_text)
