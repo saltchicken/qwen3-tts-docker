@@ -17,6 +17,9 @@ services:
 
     # ‼️ Increase shared memory (crucial for PyTorch dataloaders)
     shm_size: 16gb
+
+    ports:
+      - "8123:8123"
     
     # Mount your current directory to /workspace
     volumes:

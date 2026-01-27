@@ -29,6 +29,7 @@ ENV MAX_JOBS=4
 RUN pip install flash-attn==2.6.3 --no-build-isolation
 
 RUN pip install -U qwen-tts
+RUN pip install fastapi uvicorn
 
 # Set the workspace
 WORKDIR /workspace
