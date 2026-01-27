@@ -5,8 +5,9 @@ services:
       dockerfile: Dockerfile
     image: pytorch-2.4-flash-attn:latest
     container_name: torch_flash_container
-    
-    # ‼️ Enable GPU support
+
+    restart: unless-stopped
+
     deploy:
       resources:
         reservations:
@@ -15,7 +16,7 @@ services:
               count: all
               capabilities: [gpu]
 
-    # ‼️ Increase shared memory (crucial for PyTorch dataloaders)
+    # Increase shared memory (crucial for PyTorch dataloaders)
     shm_size: 16gb
 
     ports:
@@ -27,6 +28,4 @@ services:
       # Optional: Mount your models folder if needed
       # - /home/saltchicken/AI/models:/workspace/models
 
-    tty: true
-    stdin_open: true
     working_dir: /workspace
