@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
             "/workspace/models/checkpoint-epoch-2",
             device_map="cuda:0",
             dtype=torch.bfloat16,
-            # attn_implementation="flash_attention_2", 
+            attn_implementation="flash_attention_2", 
         )
         print("TTS Model loaded successfully.")
     except Exception as e:
