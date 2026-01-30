@@ -10,7 +10,7 @@ model = Qwen3TTSModel.from_pretrained(
 )
 
 prompt_items = model.create_voice_clone_prompt( 
-    ref_audio = "./glow_ref.wav",
+    ref_audio = "./refs/glow_ref.wav",
     ref_text  = "The ground was black, still the foliage that grew from it and around it displayed the richest jeweled homes.",
     x_vector_only_mode=False,
 )
