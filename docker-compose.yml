@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: pytorch-2.4-flash-attn:latest
-    container_name: torch_flash_container
+    container_name: qwen3-tts
 
     restart: unless-stopped
 
