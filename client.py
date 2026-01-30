@@ -3,7 +3,7 @@ import sounddevice as sd
 import struct
 import sys
 
-# ‼️ Configuration
+
 SERVER_URL = "http://localhost:8123/tts"
 
 def parse_wav_header(header_bytes):
@@ -40,17 +40,15 @@ def parse_wav_header(header_bytes):
         print(f"Header parse warning: {e}")
         return None, 0
 
-def stream_audio(text, speaker="john_e"):
+def stream_audio(text):
     payload = {
         "text": text,
-        "language": "English",
-        "speaker": speaker,
     }
 
     print(f" >> Sending: {text[:50]}...")
 
     try:
-        # ‼️ stream=True is critical here
+
         with requests.post(SERVER_URL, json=payload, stream=True) as response:
             if response.status_code != 200:
                 print(f"Server Error: {response.status_code}")
