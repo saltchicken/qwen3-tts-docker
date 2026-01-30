@@ -33,4 +33,6 @@ RUN pip install fastapi uvicorn
 
 # Set the workspace
 WORKDIR /workspace
-CMD ["python", "server.py"]
+CMD ["/bin/bash", "-c", "sleep infinity"]
+# CMD ["python", "server.py"]
+
