@@ -80,7 +80,7 @@ class TTSEngine:
             try:
                 print(f" >> Loading cached voice '{voice_id}' from .pt file...")
                 # Load directly to the correct device (likely cuda:0 based on model)
-                self.voice_prompts[voice_id] = torch.load(pt_path)
+                self.voice_prompts[voice_id] = torch.load(pt_path, weights_only=False)
             except Exception as e:
                 print(f"Error loading cached voice '{voice_id}': {e}")
 
