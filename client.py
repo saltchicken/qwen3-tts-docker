@@ -36,14 +36,18 @@ class TTSClient:
             print(f"Header parse warning: {e}")
             return None, 0
 
-    def stream_audio(self, text, temperature=0.9):
+    def stream_audio(self, text, voice=None, temperature=0.9):
         payload = {
             "text": text,
             "temperature": temperature
         }
+        
+
+        if voice:
+            payload["voice"] = voice
 
 
-        print(f" >> Sending (Temp: {temperature}): {text[:50]}...", flush=True)
+        print(f" >> Sending (Temp: {temperature}, Voice: {voice or 'Default'}): {text[:50]}...", flush=True)
 
         try:
 
@@ -110,13 +114,16 @@ if __name__ == "__main__":
     parser.add_argument("text", nargs="?", help="Text to speak")
     parser.add_argument("--url", default="http://localhost:8123/tts", help="Server URL")
     parser.add_argument("--temp", type=float, default=0.9, help="Temperature (creativity)")
+
+    parser.add_argument("--voice", type=str, default=None, help="Voice ID (filename in refs/ without extension)")
     
     args = parser.parse_args()
 
     client = TTSClient(server_url=args.url)
 
     if args.text:
-        client.stream_audio(args.text, args.temp)
+
+        client.stream_audio(args.text, voice=args.voice, temperature=args.temp)
     else:
         # Default test text
         long_text = (
@@ -124,4 +131,4 @@ if __name__ == "__main__":
             "We are sending a significantly larger block of text to ensure that the sentence splitting logic works seamlessly. "
             "By the time you hear this sentence, the GPU should have already finished processing the beginning."
         )
-        client.stream_audio(long_text, args.temp)
+        client.stream_audio(long_text, voice=args.voice, temperature=args.temp)
