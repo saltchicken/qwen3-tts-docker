@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      network: host
     image: pytorch-2.4-flash-attn:latest
     container_name: qwen3-tts
 
@@ -19,8 +20,10 @@ services:
     # Increase shared memory (crucial for PyTorch dataloaders)
     shm_size: 16gb
 
-    ports:
-      - "8123:8123"
+    network_mode: host
+
+    # ports:
+    #   - "8123:8123"
     
     # Mount your current directory to /workspace
     volumes:
