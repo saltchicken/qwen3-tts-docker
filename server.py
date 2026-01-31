@@ -3,6 +3,7 @@ import re
 import torch
 import soundfile as sf
 import uvicorn
+import threading # ‼️ Added for thread safety
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
@@ -27,6 +28,7 @@ class TTSEngine:
         self.model = None
         self.voice_prompts = {}
         self.default_voice_id = "glow_ref" 
+        self.lock = threading.Lock() # ‼️ Added a lock to prevent concurrent GPU access
         
         self.default_gen_kwargs = dict(
             max_new_tokens=2048,
@@ -157,33 +159,37 @@ class TTSEngine:
 
         target_subtype = 'PCM_16'
 
-        for i, sentence in enumerate(sentences):
-            if not sentence.strip():
-                continue
+        # ‼️ Acquire lock to ensure only one request uses the GPU at a time
+        with self.lock:
+            for i, sentence in enumerate(sentences):
+                if not sentence.strip():
+                    continue
 
-            try:
-                print(f" >> Generating sentence {i+1}/{len(sentences)}...")
-                wavs, sr = self.model.generate_voice_clone(
-                    text=sentence,
-                    language="English",
-                    voice_clone_prompt=prompt_items,
-                    **gen_kwargs
-                )
+                try:
+                    print(f" >> Generating sentence {i+1}/{len(sentences)}...")
+                    wavs, sr = self.model.generate_voice_clone(
+                        text=sentence,
+                        language="English",
+                        voice_clone_prompt=prompt_items,
+                        **gen_kwargs
+                    )
 
-                audio_data = wavs[0].cpu().numpy() if torch.is_tensor(wavs[0]) else wavs[0]
-                buffer = io.BytesIO()
-                
-                if i == 0:
-                    sf.write(buffer, audio_data, sr, format='WAV', subtype=target_subtype)
-                else:
-                    sf.write(buffer, audio_data, sr, format='RAW', subtype=target_subtype)
+                    audio_data = wavs[0].cpu().numpy() if torch.is_tensor(wavs[0]) else wavs[0]
+                    buffer = io.BytesIO()
+                    
+                    # ‼️ Server always sends header if it's the start of *this* request's stream
+                    # When client sends sentence-by-sentence, every response starts with i=0
+                    if i == 0:
+                        sf.write(buffer, audio_data, sr, format='WAV', subtype=target_subtype)
+                    else:
+                        sf.write(buffer, audio_data, sr, format='RAW', subtype=target_subtype)
 
-                buffer.seek(0)
-                yield buffer.read()
-                
-            except Exception as e:
-                print(f"Error generating sentence: {e}")
-                continue
+                    buffer.seek(0)
+                    yield buffer.read()
+                    
+                except Exception as e:
+                    print(f"Error generating sentence: {e}")
+                    continue
 
 tts_engine = TTSEngine()
 
