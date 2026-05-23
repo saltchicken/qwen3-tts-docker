@@ -63,9 +63,11 @@ class Qwen3TTSClient:
                 continue
 
             # 🔥 Capture the session ID right before we start processing
-            current_session = self.session_id
+            if current_session != self.session_id:
+                self.sentence_queue.task_done()
+                continue
 
-            print(f"   [TTS Worker] Processing: '{text[:30]}...'", flush=True)
+            # print(f"   [TTS Worker] Processing: '{text[:30]}...'", flush=True)
             
             payload = {
                 "text": text,
@@ -140,7 +142,7 @@ class Qwen3TTSClient:
                     sr, header_len = self._parse_wav_header(buffer)
                     if sr:
                         self.sample_rate = sr
-                        print(f"   [Player] Stream started at {sr}Hz", flush=True)
+                        # print(f"   [Player] Stream started at {sr}Hz", flush=True)
                         
                         try:
                             self.sd_stream = sd.RawOutputStream(
@@ -175,7 +177,7 @@ class Qwen3TTSClient:
             self.audio_chunk_queue.task_done()
 
     def interrupt(self):
-        print("\n⚡ Interruption triggered! Cutting audio pipeline immediately...", flush=True)
+        # print("\n⚡ Interruption triggered! Cutting audio pipeline immediately...", flush=True)
         
         self.stop_signal = True
         
