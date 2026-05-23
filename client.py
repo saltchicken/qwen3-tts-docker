@@ -74,7 +74,7 @@ class Qwen3TTSClient:
             }
 
             try:
-                with requests.post(self.server_url, json=payload, stream=True, timeout=10) as response:
+                with requests.post(self.server_url, json=payload, stream=True, timeout=60) as response:
                     # 🔥 If an interrupt happened while waiting for the server to reply, drop it instantly!
                     if self.session_id != current_session:
                         self.sentence_queue.task_done()
