@@ -31,7 +31,7 @@ class TTSEngine:
         self.lock = threading.Lock()
         
         self.default_gen_kwargs = dict(
-            max_new_tokens=2048,
+            max_new_tokens=512,
             do_sample=True,
             top_k=50,
             top_p=1.0,
@@ -52,6 +52,7 @@ class TTSEngine:
                 dtype=torch.bfloat16,
                 attn_implementation="flash_attention_2",
             )
+            self.model = torch.compile(self.model, mode="reduce-overhead")
             print("TTS Model loaded successfully.")
             
 
