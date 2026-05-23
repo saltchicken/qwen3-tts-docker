@@ -6,9 +6,8 @@ import queue
 import threading
 import re
 
-
-class AudioPipeline:
-    def __init__(self, server_url, voice=None, temp=0.9):
+class Qwen3TTSClient:
+    def __init__(self, server_url="http://localhost:8123/tts", voice=None, temp=0.9):
         self.server_url = server_url
         self.voice = voice
         self.temp = temp
@@ -67,7 +66,6 @@ class AudioPipeline:
             }
 
             try:
-
                 with requests.post(self.server_url, json=payload, stream=True, timeout=30) as response:
                     if response.status_code != 200:
                         print(f"‼️ Server Error {response.status_code}")
@@ -126,7 +124,6 @@ class AudioPipeline:
                     # If we can't find header yet, keep buffering
                     continue
             else:
-
                 # (because server treats each request as new). We must detect and strip it
                 # to avoid loud "pops" or static.
                 
@@ -149,18 +146,30 @@ class AudioPipeline:
         self.playback_finished.set()
 
     def start(self):
+        """Starts the background worker threads."""
         self.t_tts = threading.Thread(target=self.tts_worker, daemon=True)
         self.t_player = threading.Thread(target=self.player_worker, daemon=True)
         self.t_tts.start()
         self.t_player.start()
 
     def add_text(self, text):
+        """Adds a single raw string to the pipeline."""
         self.sentence_queue.put(text)
 
+    def speak(self, text):
+        """Convenience method for external apps. Splits block text into sentences and queues them."""
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        for s in sentences:
+            if s.strip():
+                self.add_text(s.strip())
+
     def close(self):
+        """Blocks until the pipeline finishes processing all queued text."""
         self.sentence_queue.put(None) # Stop TTS
-        self.t_tts.join() # Wait for TTS to finish pending
-        self.t_player.join() # Wait for player to finish pending
+        if hasattr(self, 't_tts'):
+            self.t_tts.join() # Wait for TTS to finish pending
+        if hasattr(self, 't_player'):
+            self.t_player.join() # Wait for player to finish pending
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TTS Streaming Client (Threaded)")
@@ -171,8 +180,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
 
-
-    client = AudioPipeline(server_url=args.url, voice=args.voice, temp=args.temp)
+    client = Qwen3TTSClient(server_url=args.url, voice=args.voice, temp=args.temp)
     client.start()
 
     full_text = ""
@@ -186,16 +194,10 @@ if __name__ == "__main__":
             "By the time you hear this sentence, the GPU should have already finished processing the beginning."
         )
 
-
-    # This mimics how gemini-client.py feeds the pipeline
     print(f" >> Sending text to pipeline...", flush=True)
     
-    # Regex to split on punctuation (.!?) followed by whitespace
-    sentences = re.split(r'(?<=[.!?])\s+', full_text)
-    
-    for s in sentences:
-        if s.strip():
-            client.add_text(s.strip())
+    # Use the new helper method instead of manual loop
+    client.speak(full_text)
 
     # Wait for completion
     try:
