@@ -56,16 +56,19 @@ class Qwen3TTSClient:
                 time.sleep(0.1)
                 continue
                 
+            # 🔥 Capture the session ID right before we start processing
+            current_session = self.session_id
+
             try:
                 text = self.sentence_queue.get(timeout=0.2)
                 if text is None: break
             except queue.Empty:
                 continue
 
-            # 🔥 Capture the session ID right before we start processing
             if current_session != self.session_id:
                 self.sentence_queue.task_done()
                 continue
+
 
             # print(f"   [TTS Worker] Processing: '{text[:30]}...'", flush=True)
             
