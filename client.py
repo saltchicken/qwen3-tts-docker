@@ -5,6 +5,7 @@ import argparse
 import queue
 import threading
 import re
+import time
 
 class Qwen3TTSClient:
     def __init__(self, server_url="http://localhost:8123/tts", voice=None, temp=0.9):
@@ -20,6 +21,7 @@ class Qwen3TTSClient:
         self.playback_finished = threading.Event()
         self.tts_processing_finished = threading.Event()
         self.stop_signal = False
+        self.lock = threading.Lock()
 
         # Audio Config
         self.sample_rate = None
@@ -48,11 +50,15 @@ class Qwen3TTSClient:
 
     def tts_worker(self):
         """Thread: Pops sentences, requests TTS, pushes audio chunks."""
-        while not self.stop_signal:
+        while True:
+            if self.stop_signal:
+                time.sleep(0.1)
+                continue
+                
             try:
-                # Wait for a sentence (timeout allows checking stop_signal)
-                text = self.sentence_queue.get(timeout=0.5)
-                if text is None: # Sentinel value
+                # Wait for a sentence (timeout allows checking stop_signal regularly)
+                text = self.sentence_queue.get(timeout=0.2)
+                if text is None: # Sentinel value for complete shutdown
                     break
             except queue.Empty:
                 continue
@@ -66,84 +72,138 @@ class Qwen3TTSClient:
             }
 
             try:
-                with requests.post(self.server_url, json=payload, stream=True, timeout=30) as response:
+                # Use a shorter stream session and check stop_signal per chunk
+                with requests.post(self.server_url, json=payload, stream=True, timeout=10) as response:
                     if response.status_code != 200:
                         print(f"‼️ Server Error {response.status_code}")
+                        self.sentence_queue.task_done()
                         continue
                     
                     for chunk in response.iter_content(chunk_size=4096):
+                        if self.stop_signal:
+                            break
                         if chunk:
                             self.audio_chunk_queue.put(chunk)
             except Exception as e:
-                print(f"‼️ TTS Network Error: {e}")
+                if not self.stop_signal:
+                    print(f"‼️ TTS Network Error: {e}")
 
             self.sentence_queue.task_done()
-        
-        # Signal that no more audio will be produced
-        self.tts_processing_finished.set()
-        self.audio_chunk_queue.put(None) # Sentinel for player
 
     def player_worker(self):
         """Thread: Pops audio chunks, plays continuous stream."""
         buffer = b""
         stream_open = False
         
-        while not self.stop_signal:
+        while True:
+            if self.stop_signal:
+                # Clean up stream if it was open when interrupted
+                with self.lock:
+                    if self.sd_stream:
+                        try:
+                            self.sd_stream.abort()
+                            self.sd_stream.close()
+                        except:
+                            pass
+                        self.sd_stream = None
+                    stream_open = False
+                    buffer = b""
+                time.sleep(0.1)
+                continue
+
             try:
-                chunk = self.audio_chunk_queue.get(timeout=0.5)
-                if chunk is None: # Sentinel
+                chunk = self.audio_chunk_queue.get(timeout=0.2)
+                if chunk is None: # Sentinel value for complete shutdown
                     break
             except queue.Empty:
                 continue
 
-            if not stream_open:
-                buffer += chunk
-                # Need enough bytes for header
-                if len(buffer) < 44:
+            with self.lock:
+                if self.stop_signal:
+                    self.audio_chunk_queue.task_done()
                     continue
-                
-                # Parse header
-                sr, header_len = self._parse_wav_header(buffer)
-                if sr:
-                    self.sample_rate = sr
-                    print(f"   [Player] Stream started at {sr}Hz", flush=True)
+
+                if not stream_open:
+                    buffer += chunk
+                    if len(buffer) < 44:
+                        self.audio_chunk_queue.task_done()
+                        continue
                     
-                    self.sd_stream = sd.RawOutputStream(
-                        samplerate=self.sample_rate,
-                        channels=self.channels,
-                        dtype='int16', 
-                        blocksize=2048
-                    )
-                    self.sd_stream.start()
-                    
-                    # Write initial data (skipping header)
-                    self.sd_stream.write(buffer[header_len:])
-                    buffer = b"" # Clear buffer
-                    stream_open = True
-                else:
-                    # If we can't find header yet, keep buffering
-                    continue
-            else:
-                # (because server treats each request as new). We must detect and strip it
-                # to avoid loud "pops" or static.
-                
-                # Simple heuristic: Check if chunk starts with RIFF
-                if chunk.startswith(b'RIFF'):
-                    _, h_len = self._parse_wav_header(chunk)
-                    if h_len > 0:
-                        # Strip the header, play the rest
-                        self.sd_stream.write(chunk[h_len:])
+                    sr, header_len = self._parse_wav_header(buffer)
+                    if sr:
+                        self.sample_rate = sr
+                        print(f"   [Player] Stream started at {sr}Hz", flush=True)
+                        
+                        try:
+                            self.sd_stream = sd.RawOutputStream(
+                                samplerate=self.sample_rate,
+                                channels=self.channels,
+                                dtype='int16', 
+                                blocksize=1024
+                            )
+                            self.sd_stream.start()
+                            self.sd_stream.write(buffer[header_len:])
+                            buffer = b""
+                            stream_open = True
+                        except Exception as e:
+                            print(f"‼️ Audio Output Error: {e}")
                     else:
-                        self.sd_stream.write(chunk)
+                        self.audio_chunk_queue.task_done()
+                        continue
                 else:
-                    self.sd_stream.write(chunk)
+                    try:
+                        if chunk.startswith(b'RIFF'):
+                            _, h_len = self._parse_wav_header(chunk)
+                            if h_len > 0:
+                                self.sd_stream.write(chunk[h_len:])
+                            else:
+                                self.sd_stream.write(chunk)
+                        else:
+                            self.sd_stream.write(chunk)
+                    except Exception as e:
+                        if not self.stop_signal:
+                            print(f"‼️ Playback stream write error: {e}")
 
             self.audio_chunk_queue.task_done()
 
-        if self.sd_stream:
-            self.sd_stream.stop()
-            self.sd_stream.close()
-        self.playback_finished.set()
+    def interrupt(self):
+        """Instantly terminates current playback and clears all queues."""
+        print("\n⚡ Interruption triggered! Cutting audio pipeline immediately...", flush=True)
+        
+        # 1. Activate stop signal to hold worker actions
+        self.stop_signal = True
+        
+        # 2. Force abort the audio hardware output instantly (clears device buffer)
+        with self.lock:
+            if self.sd_stream:
+                try:
+                    self.sd_stream.abort() # Immediate stop, unlike stream.stop()
+                    self.sd_stream.close()
+                except Exception:
+                    pass
+                self.sd_stream = None
+
+        # 3. Drain text and audio queues completely
+        while not self.sentence_queue.empty():
+            try:
+                self.sentence_queue.get_nowait()
+                self.sentence_queue.task_done()
+            except queue.Empty:
+                break
+                
+        while not self.audio_chunk_queue.empty():
+            try:
+                self.audio_chunk_queue.get_nowait()
+                self.audio_chunk_queue.task_done()
+            except queue.Empty:
+                break
+
+        # Short cool down to let loops drop out of active HTTP requests/writes
+        time.sleep(0.2)
+        
+        # 4. Clear signal so the engine is ready for new speech input
+        self.stop_signal = False
+        print(" >> Pipeline reset and ready.", flush=True)
 
     def start(self):
         """Starts the background worker threads."""
@@ -157,7 +217,7 @@ class Qwen3TTSClient:
         self.sentence_queue.put(text)
 
     def speak(self, text):
-        """Convenience method for external apps. Splits block text into sentences and queues them."""
+        """Splits block text into sentences and queues them."""
         sentences = re.split(r'(?<=[.!?])\s+', text)
         for s in sentences:
             if s.strip():
@@ -165,45 +225,57 @@ class Qwen3TTSClient:
 
     def close(self):
         """Blocks until the pipeline finishes processing all queued text."""
-        self.sentence_queue.put(None) # Stop TTS
-        if hasattr(self, 't_tts'):
-            self.t_tts.join() # Wait for TTS to finish pending
-        if hasattr(self, 't_player'):
-            self.t_player.join() # Wait for player to finish pending
+        self.sentence_queue.put(None) 
+        self.audio_chunk_queue.put(None)
+        if hasattr(self, 't_tts') and self.t_tts.is_alive():
+            self.t_tts.join() 
+        if hasattr(self, 't_player') and self.t_player.is_alive():
+            self.t_player.join()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TTS Streaming Client (Threaded)")
     parser.add_argument("text", nargs="?", help="Text to speak")
     parser.add_argument("--url", default="http://localhost:8123/tts", help="Server URL")
-    parser.add_argument("--temp", type=float, default=0.9, help="Temperature (creativity)")
-    parser.add_argument("--voice", type=str, default=None, help="Voice ID (filename in refs/ without extension)")
+    parser.add_argument("--temp", type=float, default=0.9, help="Temperature")
+    parser.add_argument("--voice", type=str, default=None, help="Voice ID")
     
     args = parser.parse_args()
 
     client = Qwen3TTSClient(server_url=args.url, voice=args.voice, temp=args.temp)
     client.start()
 
-    full_text = ""
+    full_text = (
+        "Here is a more comprehensive test to verify the streaming capabilities of your server. "
+        "We are sending a significantly larger block of text to ensure that the sentence splitting logic works seamlessly. "
+        "By the time you hear this sentence, the GPU should have already finished processing the beginning."
+    )
     if args.text:
         full_text = args.text
-    else:
-        # Default test text
-        full_text = (
-            "Here is a more comprehensive test to verify the streaming capabilities of your server. "
-            "We are sending a significantly larger block of text to ensure that the sentence splitting logic works seamlessly. "
-            "By the time you hear this sentence, the GPU should have already finished processing the beginning."
-        )
 
-    print(f" >> Sending text to pipeline...", flush=True)
-    
-    # Use the new helper method instead of manual loop
+    print(" >> Sending text to pipeline (Press Ctrl+C to test immediate interrupt)...", flush=True)
     client.speak(full_text)
 
-    # Wait for completion
+    # Monitor loop allowing user interaction/KeyboardInterrupt
     try:
+        while not client.sentence_queue.empty() or not client.audio_chunk_queue.empty():
+            time.sleep(0.1)
+        
+        # Give a moment for final audio block to play through hardware
+        time.sleep(1.0)
         client.close()
         print(" >> Done.")
+        
     except KeyboardInterrupt:
-        print("\nStopped.")
-        client.stop_signal = True
+        # Trigger immediate hardware/queue purge
+        client.interrupt()
+        
+        # Optional: Test sending a brand new phrase right after to verify reusability!
+        print("\n >> Verification: Sending a new short sentence to ensure pipeline recovered...")
+        client.speak("Pipeline successfully recovered from interrupt.")
+        
+        # Let it finish playing the recovery message before shutting down the script
+        while not client.sentence_queue.empty() or not client.audio_chunk_queue.empty():
+            time.sleep(0.1)
+        time.sleep(1.0)
         client.close()
