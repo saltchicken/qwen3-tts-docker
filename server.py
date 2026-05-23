@@ -159,7 +159,6 @@ class TTSEngine:
 
         target_subtype = 'PCM_16'
 
-
         with self.lock:
             for i, sentence in enumerate(sentences):
                 if not sentence.strip():
@@ -177,8 +176,6 @@ class TTSEngine:
                     audio_data = wavs[0].cpu().numpy() if torch.is_tensor(wavs[0]) else wavs[0]
                     buffer = io.BytesIO()
                     
-
-                    # When client sends sentence-by-sentence, every response starts with i=0
                     if i == 0:
                         sf.write(buffer, audio_data, sr, format='WAV', subtype=target_subtype)
                     else:
@@ -188,15 +185,21 @@ class TTSEngine:
                     yield buffer.read()
                     
                 except Exception as e:
+                    # 🔥 NEW: Check if the exception is due to the client disconnecting (Ctrl+C interrupt)
+                    err_str = str(e.__class__.__name__)
+                    if err_str in ['ClientDisconnect', 'GeneratorExit', 'RuntimeError'] or "closed" in str(e).lower():
+                        print(f"⚠️ Client disconnected. Aborting remaining generation to free GPU.")
+                        break # Break the loop! Don't process the next sentence.
+
                     import traceback
                     error_trace = traceback.format_exc()
                     print(f"Error generating sentence:\n{error_trace}")
                     
-                    # Force write the error to a file we can easily read
                     with open("tts_crash.log", "w") as f:
                         f.write(f"Failed on sentence: {sentence}\n")
                         f.write(error_trace)
                     continue
+
 tts_engine = TTSEngine()
 
 @asynccontextmanager
