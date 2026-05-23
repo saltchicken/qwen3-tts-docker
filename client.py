@@ -212,7 +212,7 @@ class Qwen3TTSClient:
 
         time.sleep(0.2)
         self.stop_signal = False
-        print(" >> Pipeline reset and ready.", flush=True)
+        # print(" >> Pipeline reset and ready.", flush=True)
 
     def start(self):
         self.t_tts = threading.Thread(target=self.tts_worker, daemon=True)
