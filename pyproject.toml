@@ -13,6 +13,4 @@ dependencies = [
 ]
 
 [tool.setuptools]
-# This tells setuptools to only install client.py as a module, 
-# ignoring server.py and other repo files.
-py-modules = ["client"]
+py-modules = ["qwen3_tts_client"]
