@@ -188,9 +188,15 @@ class TTSEngine:
                     yield buffer.read()
                     
                 except Exception as e:
-                    print(f"Error generating sentence: {e}")
+                    import traceback
+                    error_trace = traceback.format_exc()
+                    print(f"Error generating sentence:\n{error_trace}")
+                    
+                    # Force write the error to a file we can easily read
+                    with open("tts_crash.log", "w") as f:
+                        f.write(f"Failed on sentence: {sentence}\n")
+                        f.write(error_trace)
                     continue
-
 tts_engine = TTSEngine()
 
 @asynccontextmanager
