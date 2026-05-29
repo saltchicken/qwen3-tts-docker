@@ -236,3 +236,32 @@ class Qwen3TTSClient:
             self.t_tts.join() 
         if hasattr(self, 't_player') and self.t_player.is_alive():
             self.t_player.join()
+
+    def wait_until_done(self, timeout=None):
+        """
+        Blocks the calling thread until all sentences have been processed by the TTS 
+        server and all resulting audio has finished playing.
+        
+        Args:
+            timeout (float, optional): Maximum time to wait in seconds.
+            
+        Returns:
+            bool: True if playback finished naturally, False if interrupted or timed out.
+        """
+        start_time = time.time()
+        
+        while True:
+            # Break early if the user triggers an interrupt (e.g., Ctrl+C)
+            if self.stop_signal:
+                return False
+                
+            # If both queues have processed all their items, the pipeline is clear.
+            if self.sentence_queue.unfinished_tasks == 0 and self.audio_chunk_queue.unfinished_tasks == 0:
+                return True
+                
+            # Handle optional timeout
+            if timeout is not None and (time.time() - start_time) > timeout:
+                return False
+                
+            # Sleep briefly to prevent the loop from pinning the CPU
+            time.sleep(0.05)
